@@ -25,12 +25,15 @@ pip install pdf2image pytesseract pillow
 
 # Translation dependencies (choose one option)
 
-# Option 1: Google Cloud Translation (paid, highest quality)
+# Option 1: Google Cloud Translation (paid, good quality)
 pip install google-cloud-translate
 
-# Option 2: Local Translation (FREE, offline options)
+# Option 2: Google Gemini (paid, excellent quality for Tamil) ⭐ RECOMMENDED
+pip install google-generativeai
+
+# Option 3: Local Translation (FREE, offline options)
 # Install ONE of these:
-pip install transformers torch sentencepiece  # HuggingFace models (recommended)
+pip install transformers torch sentencepiece  # HuggingFace models
 pip install argostranslate                    # Lightweight, fully offline
 pip install requests                          # For LibreTranslate API
 ```
@@ -131,6 +134,18 @@ python main.py book.pdf tamil_output.txt
 
 ### With Translation
 
+#### Google Gemini (RECOMMENDED for Tamil) ⭐
+```bash
+# OCR + Translation to English (best quality for Tamil)
+python main.py book.pdf --translate --gemini
+
+# Process specific pages with Gemini translation
+python main.py book.pdf --start 5 --end 15 --translate --gemini
+
+# Custom output with Gemini translation
+python main.py book.pdf english_book.txt --translate --gemini
+```
+
 #### Cloud Translation (Google Translate)
 ```bash
 # OCR + Translation to English (requires Google Cloud setup)
@@ -157,8 +172,35 @@ python main.py book.pdf english_book.txt --translate
 
 ## 🔧 Translation Setup
 
-### Option 1: Google Cloud Translation (Paid)
-For high-quality translation with Google Cloud:
+### Option 1: Google Gemini (RECOMMENDED) ⭐
+For excellent Tamil translation quality:
+
+#### 1. Get API Key
+1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Create a new API key
+3. Copy the API key
+
+#### 2. Set Up Environment
+```bash
+# Set the API key
+export GEMINI_API_KEY="your-api-key-here"
+
+# Optional: Set specific model version (defaults to gemini-2.0-flash-exp)
+export GEMINI_MODEL="gemini-2.0-flash-exp"
+
+# Install the library
+pip install google-generativeai
+```
+
+#### 3. Usage
+```bash
+python main.py book.pdf --translate --gemini
+```
+
+**💰 Cost**: Very affordable - $0.075 per 1K characters for Gemini 2.0 Flash (about $3-5 for a 500-page book)
+
+### Option 2: Google Cloud Translation (Paid)
+For traditional Google Translate:
 
 #### 1. Create Google Cloud Project
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
@@ -183,13 +225,13 @@ export GOOGLE_CLOUD_PROJECT="your-project-id"
 pip install google-cloud-translate
 ```
 
-**💰 Cost**: Google Cloud offers $300 free credit. Translation costs ~$20 per million characters (approximately $40-60 per 500-page book).
+**💰 Cost**: Google Cloud offers $300 free credit. Translation costs ~$20 per million characters.
 
-### Option 2: Local Translation (FREE) ⭐
+### Option 3: Local Translation (FREE)
 
 #### Quick Setup
 ```bash
-# Option A: HuggingFace Transformers (recommended)
+# Option A: HuggingFace Transformers
 pip install transformers torch sentencepiece
 
 # Option B: Argos Translate (fully offline)
@@ -212,23 +254,26 @@ python main.py book.pdf --translate --local
 - **✅ No Setup** - No API keys or authentication needed
 
 #### Translation Quality Comparison:
-1. **Google Cloud**: Highest quality, best for professional use
-2. **HuggingFace Models**: Good quality, free, slightly slower first run
-3. **Argos Translate**: Decent quality, lightweight, fully offline
-4. **LibreTranslate**: Good quality, free online service
+1. **Google Gemini**: Excellent quality for Tamil, understands context and culture ⭐
+2. **Google Cloud**: Good quality, reliable, industry standard
+3. **HuggingFace Models**: Decent quality, free, works offline
+4. **Argos Translate**: Basic quality, lightweight, fully offline
+5. **LibreTranslate**: Decent quality, free online service
 
 ## 📁 Project Structure
 
 ```
 tamil-to-english-convertor/
-├── main.py                 # Main CLI application
+├── main.py                    # Main CLI application
 ├── src/
-│   ├── __init__.py        # Package initialization
-│   ├── ocr.py            # OCR processing logic
-│   ├── translation.py     # Translation service
-│   └── file_handler.py    # File operations
-├── requirements.txt       # Python dependencies
-└── README.md             # This file
+│   ├── __init__.py           # Package initialization
+│   ├── ocr.py               # OCR processing logic
+│   ├── translation.py        # Google Cloud Translation service
+│   ├── gemini_translation.py # Google Gemini Translation service
+│   ├── local_translation.py  # Local translation services
+│   └── file_handler.py       # File operations
+├── requirements.txt          # Python dependencies
+└── README.md                # This file
 ```
 
 ## 🏗️ Architecture

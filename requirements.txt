@@ -2,13 +2,21 @@
 pdf2image>=3.1.0
 pytesseract>=0.3.10
 Pillow>=10.0.0
+python-dotenv>=1.0.0
+
+# Enhanced OCR processing (optional but recommended)
+opencv-python>=4.8.0
+numpy>=1.24.0
 
 # Translation dependencies (choose one)
-# Option 1: Google Cloud (paid, high quality)
+# Option 1: Google Cloud Translate (paid, good quality)
 google-cloud-translate>=3.12.0
 
-# Option 2: Local translation (free, offline)
+# Option 2: Google Gemini (paid, excellent quality for Tamil)
+google-genai>=1.59.0
+
+# Option 3: Local translation (free, offline)
 # Install ONE of these combinations:
-# transformers>=4.21.0 torch>=1.12.0 sentencepiece>=0.1.95  # HuggingFace models (recommended)
+# transformers>=4.21.0 torch>=1.12.0 sentencepiece>=0.1.95  # HuggingFace models
 # argostranslate>=1.8.0  # Fully offline (lightweight)
 # requests>=2.28.0  # For LibreTranslate API access

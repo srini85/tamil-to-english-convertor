@@ -41,7 +41,7 @@ class ContentProcessor:
         translate: bool = False
     ) -> str:
         """
-        Format extracted text pages with headers and optional translation.
+        Format extracted text pages as continuous content without page breaks.
         
         Args:
             pages_data: List of (page_number, text) tuples
@@ -49,38 +49,34 @@ class ContentProcessor:
             translate: Whether to translate the content
             
         Returns:
-            Formatted content string
+            Formatted content string as continuous text
         """
         content_parts = []
         
         for page_num, text in pages_data:
-            page_header = f"\n{'='*70}\nPage {page_num}\n{'='*70}\n"
-            
             if translate and translator:
                 print(f"Translating page {page_num}...")
                 try:
                     translated_text = translator.translate_text(text)
-                    content_parts.append(page_header + translated_text)
+                    content_parts.append(translated_text)
                 except Exception as e:
                     print(f"Translation failed for page {page_num}: {e}")
-                    content_parts.append(page_header + f"[Translation Error]\n{text}")
+                    content_parts.append(f"[Translation Error for page {page_num}]\n{text}")
             else:
-                content_parts.append(page_header + text)
+                content_parts.append(text)
         
+        # Join content with double line breaks to maintain readability
+        # but without page headers
         return '\n\n'.join(content_parts)
     
     @staticmethod
     def extract_sample_content(content: str, page_offset: int = 0, max_lines: int = 8) -> List[str]:
-        """Extract sample content for display purposes."""
+        """Extract sample content for display purposes from continuous text."""
         lines = content.split('\n')
         sample_lines = []
-        header_passed = False
         
         for line in lines:
-            if '=' in line and 'Page' in line:
-                header_passed = True
-                continue
-            elif header_passed and line.strip():
+            if line.strip():  # Only include non-empty lines
                 sample_lines.append(line)
                 if len(sample_lines) >= max_lines:
                     break

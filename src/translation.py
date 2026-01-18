@@ -3,6 +3,7 @@
 import time
 import os
 from typing import List
+from .config import config, rate_limiter
 
 try:
     from google.cloud import translate_v3 as translate
@@ -26,17 +27,25 @@ class TamilTranslator:
                 "Install with: pip install google-cloud-translate"
             )
         
-        # Get project ID from environment if not provided
-        self.project_id = project_id or os.getenv('GOOGLE_CLOUD_PROJECT')
+        # Get project ID from config
+        self.project_id = project_id or config.google_cloud_project
         if not self.project_id:
             raise ValueError(
-                "Project ID is required. Set GOOGLE_CLOUD_PROJECT environment variable "
-                "or pass project_id parameter."
+                "Project ID not found. Set GOOGLE_CLOUD_PROJECT in .env file or environment variable"
             )
         
         self.location = location
         self.client = translate.TranslationServiceClient()
         self.parent = f"projects/{self.project_id}/locations/{self.location}"
+        
+        # Show configuration info
+        if config.verbose_logging:
+            print(f"🔧 Google Translate Configuration:")
+            print(f"   Project: {self.project_id}")
+            print(f"   Location: {self.location}")
+            print(f"   Request delay: {config.google_translate_delay_between_requests}s")
+            print(f"   Chunk delay: {config.google_translate_delay_between_chunks}s")
+        
         self._test_connection()
     
     def _test_connection(self):
@@ -51,13 +60,13 @@ class TamilTranslator:
         except Exception as e:
             raise ConnectionError(f"Failed to connect to Google Translate API v3: {e}")
     
-    def translate_text(self, text: str, chunk_size: int = 5000) -> str:
+    def translate_text(self, text: str, chunk_size: int = None) -> str:
         """
         Translate Tamil text to English with intelligent chunking.
         
         Args:
             text: Tamil text to translate
-            chunk_size: Maximum characters per API request
+            chunk_size: Maximum characters per API request (uses config if not specified)
             
         Returns:
             Translated English text
@@ -68,13 +77,22 @@ class TamilTranslator:
         if not text.strip():
             return ""
         
+        # Use configured chunk size if not provided
+        chunk_size = chunk_size or config.max_chunk_size
+        
         chunks = self._split_text(text, chunk_size)
         translated_chunks = []
         failed_chunks = 0
         
+        print(f"🔄 Translating {len(chunks)} chunks with Google Cloud Translate...")
+        
         for i, chunk in enumerate(chunks, 1):
             if chunk.strip():
                 try:
+                    # Rate limiting before request
+                    rate_limiter.wait_if_needed('google_translate', 'request')
+                    rate_limiter.log_request('google_translate')
+                    
                     response = self.client.translate_text(
                         parent=self.parent,
                         contents=[chunk],
@@ -85,7 +103,10 @@ class TamilTranslator:
                     
                     if len(chunks) > 1:
                         print(f"Translated chunk {i}/{len(chunks)}", end='\r')
-                        time.sleep(0.1)  # Rate limiting
+                        
+                        # Rate limiting between chunks
+                        if i < len(chunks):
+                            rate_limiter.wait_if_needed('google_translate', 'chunk')
                         
                 except Exception as e:
                     print(f"\nWarning: Translation failed for chunk {i}: {e}")
@@ -123,4 +144,4 @@ class TamilTranslator:
 
 def is_translation_available() -> bool:
     """Check if translation dependencies are available."""
-    return GOOGLE_TRANSLATE_AVAILABLE
+    return GOOGLE_TRANSLATE_AVAILABLE and bool(config.google_cloud_project)
