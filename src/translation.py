@@ -1,10 +1,11 @@
-"""Tamil text translation service using Google Cloud Translate API."""
+"""Tamil text translation service using Google Cloud Translate API v3."""
 
 import time
+import os
 from typing import List
 
 try:
-    from google.cloud import translate_v2 as translate
+    from google.cloud import translate_v3 as translate
     GOOGLE_TRANSLATE_AVAILABLE = True
 except ImportError:
     GOOGLE_TRANSLATE_AVAILABLE = False
@@ -16,24 +17,39 @@ class TranslationError(Exception):
 
 
 class TamilTranslator:
-    """High-accuracy Tamil to English translator using Google Cloud API."""
+    """High-accuracy Tamil to English translator using Google Cloud API v3."""
     
-    def __init__(self):
+    def __init__(self, project_id: str = None, location: str = "global"):
         if not GOOGLE_TRANSLATE_AVAILABLE:
             raise ImportError(
                 "Google Cloud Translate not available. "
                 "Install with: pip install google-cloud-translate"
             )
         
-        self.client = translate.Client()
+        # Get project ID from environment if not provided
+        self.project_id = project_id or os.getenv('GOOGLE_CLOUD_PROJECT')
+        if not self.project_id:
+            raise ValueError(
+                "Project ID is required. Set GOOGLE_CLOUD_PROJECT environment variable "
+                "or pass project_id parameter."
+            )
+        
+        self.location = location
+        self.client = translate.TranslationServiceClient()
+        self.parent = f"projects/{self.project_id}/locations/{self.location}"
         self._test_connection()
     
     def _test_connection(self):
         """Test API connection with a simple translation."""
         try:
-            self.client.translate("test", target_language='en', source_language='ta')
+            response = self.client.translate_text(
+                parent=self.parent,
+                contents=["test"],
+                target_language_code='en',
+                source_language_code='ta'
+            )
         except Exception as e:
-            raise ConnectionError(f"Failed to connect to Google Translate API: {e}")
+            raise ConnectionError(f"Failed to connect to Google Translate API v3: {e}")
     
     def translate_text(self, text: str, chunk_size: int = 5000) -> str:
         """
@@ -59,12 +75,13 @@ class TamilTranslator:
         for i, chunk in enumerate(chunks, 1):
             if chunk.strip():
                 try:
-                    result = self.client.translate(
-                        chunk, 
-                        target_language='en', 
-                        source_language='ta'
+                    response = self.client.translate_text(
+                        parent=self.parent,
+                        contents=[chunk],
+                        target_language_code='en',
+                        source_language_code='ta'
                     )
-                    translated_chunks.append(result['translatedText'])
+                    translated_chunks.append(response.translations[0].translated_text)
                     
                     if len(chunks) > 1:
                         print(f"Translated chunk {i}/{len(chunks)}", end='\r')

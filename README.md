@@ -164,14 +164,18 @@ For high-quality translation with Google Cloud:
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project or select existing one
 3. Enable the Cloud Translation API
+4. Note your project ID for configuration
 
 #### 2. Set Up Authentication
 ```bash
 # Method 1: Service Account Key (Recommended)
 export GOOGLE_APPLICATION_CREDENTIALS="path/to/service-account-key.json"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
 
 # Method 2: Application Default Credentials
 gcloud auth application-default login
+gcloud config set project your-project-id
+export GOOGLE_CLOUD_PROJECT="your-project-id"
 ```
 
 #### 3. Install Translation Dependencies

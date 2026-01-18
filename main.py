@@ -1,6 +1,7 @@
 """Main CLI application for Tamil PDF OCR and translation."""
 
 import sys
+import os
 import argparse
 from pathlib import Path
 
@@ -114,8 +115,10 @@ class TamilPDFProcessor:
                 else:
                     raise LocalTranslationError("No local translation services available")
             else:
-                translator = TamilTranslator()
-                print("✓ Google Translate API connected")
+                # Get project ID from environment variable
+                project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
+                translator = TamilTranslator(project_id=project_id)
+                print("✓ Google Translate API v3 connected")
                 return translator
         except Exception as e:
             error_type = "Local translation" if use_local else "Google Translate"
@@ -160,10 +163,11 @@ Requirements for translation:
   # For Google Cloud (default):
   pip install google-cloud-translate
   Set up Google Cloud credentials (GOOGLE_APPLICATION_CREDENTIALS)
+  Set project ID (GOOGLE_CLOUD_PROJECT environment variable)
   
   # For local translation (free):
-  pip install transformers torch argostranslate
-  # or just: pip install transformers torch (for HuggingFace models)
+  pip install transformers torch sentencepiece
+  # or: pip install argostranslate (for fully offline)
         """
     )
     
@@ -199,6 +203,7 @@ def main():
                 print("Error: Cloud translation requested but google-cloud-translate not installed!")
                 print("Install with: pip install google-cloud-translate")
                 print("Set up Google Cloud credentials: https://cloud.google.com/docs/authentication/getting-started")
+                print("Set project ID: export GOOGLE_CLOUD_PROJECT='your-project-id'")
                 print("Or use local translation: python main.py <file> --translate --local")
                 sys.exit(1)
     
