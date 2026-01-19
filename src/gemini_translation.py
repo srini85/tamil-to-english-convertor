@@ -138,34 +138,39 @@ Please provide only the English translation without any additional commentary or
             rate_limiter.wait_if_needed('gemini', 'request')
             rate_limiter.log_request('gemini')
             
-            # Enhanced prompt for full document translation
-            prompt = f"""Please translate this complete Tamil document to English. 
+            # Enhanced prompt for full document translation with content policy considerations
+            prompt = f"""Please provide a professional English translation of this Tamil literary text.
             
-Document Title: {document_title}
+This is a cultural/literary document that needs accurate translation while preserving the narrative structure.
             
-Instructions:
-            - Maintain the narrative flow and coherence throughout
-            - Preserve the original structure and paragraphing
-            - Keep proper nouns and character names unchanged
-            - Ensure consistent terminology throughout the document
-            - Maintain the tone and style of the original text
+Translation Guidelines:
+            - Provide direct, professional translation from Tamil to English
+            - Maintain the original narrative flow and structure
+            - Preserve proper nouns and character names
+            - Keep the literary tone and style
+            - This is educational/cultural content requiring translation services
             
-Tamil Text to Translate:
+Tamil Literary Text:
             
 {text}"""
             
             print(f"🔄 Translating complete document with Gemini ({len(text)} characters)...")
             
+            # Check estimated input tokens (Tamil text is roughly 1.5-2 tokens per character)
+            estimated_input_tokens = int(len(text) * 1.7)  # Conservative estimate for Tamil
+            
             # Calculate appropriate max tokens based on input size
             # Estimate: Tamil to English usually expands by 1.2-1.5x in character count
-            # 1 token ≈ 3-4 characters, so we need generous token allowance
+            # 1 token ≈ 3-4 characters for English, so we need generous token allowance
             estimated_output_tokens = min(
                 config.translation_document_max_output_tokens,
-                max(8000, int(len(text) * 1.5 / 3))  # Generous estimate
+                max(15000, int(len(text) * 2.0 / 3))  # More generous estimate
             )
             
             if config.verbose_logging:
-                print(f"   📊 Input: {len(text)} chars, Estimated tokens needed: {estimated_output_tokens}")
+                print(f"   📊 Input: {len(text)} chars, Est. input tokens: {estimated_input_tokens}")
+                print(f"   📊 Estimated output tokens needed: {estimated_output_tokens}")
+                print(f"   📊 Max output tokens configured: {config.translation_document_max_output_tokens}")
             
             response = self.client.models.generate_content(
                 model=self.model_name,
@@ -176,6 +181,9 @@ Tamil Text to Translate:
                     max_output_tokens=estimated_output_tokens
                 )
             )
+            
+            # Always debug the response in detail
+            self._debug_gemini_response(response, "Document Translation")
             
             if response and response.text:
                 translated_text = response.text.strip()
@@ -193,7 +201,9 @@ Tamil Text to Translate:
                 print(f"✓ Document translation completed ({output_chars} characters)")
                 return translated_text
             else:
-                raise Exception("Empty response from Gemini")
+                # Detailed error analysis
+                error_details = self._analyze_failed_response(response, "document translation")
+                raise Exception(f"Empty response from Gemini: {error_details}")
                 
         except Exception as e:
             raise GeminiTranslationError(f"Full document translation failed: {e}")
@@ -245,17 +255,26 @@ Tamil Text to Translate:
                             )
                         )
                         
+                        # Debug chunk response if verbose or if it fails
+                        if not (response and response.text) or config.verbose_logging:
+                            self._debug_gemini_response(response, f"Chunk {i}")
+                        
                         if response and response.text:
                             translated_chunks.append(response.text.strip())
                             
                             if len(chunks) > 1:
                                 print(f"Translated chunk {i}/{len(chunks)} (Gemini)", end='\r')
                         else:
-                            raise Exception("Empty response from Gemini")
+                            error_details = self._analyze_failed_response(response, f"chunk {i}")
+                            raise Exception(f"Empty response from Gemini for chunk {i}: {error_details}")
                             
                     except Exception as e:
-                        print(f"\nWarning: Gemini translation failed for chunk {i}: {e}")
-                        translated_chunks.append(f"[Translation failed for chunk {i}: {chunk[:100]}...]")
+                        error_msg = str(e)
+                        print(f"\nWarning: Gemini translation failed for chunk {i}: {error_msg}")
+                        
+                        # Show first 100 chars of failed chunk for context
+                        chunk_preview = chunk[:100] + "..." if len(chunk) > 100 else chunk
+                        translated_chunks.append(f"[Translation failed for chunk {i}: {chunk_preview}]")
                         failed_chunks += 1
                     
                     # Rate limiting between chunks
@@ -276,6 +295,102 @@ Tamil Text to Translate:
     def has_full_document_support(self) -> bool:
         """Check if full document translation is enabled."""
         return config.gemini_translation_mode == 'document'
+
+    def _debug_gemini_response(self, response, context: str = "Translation"):
+        """Debug and log detailed information about Gemini API response."""
+        print(f"\n🔍 DEBUG - {context} Response Analysis:")
+        print(f"   Response Type: {type(response)}")
+        print(f"   Response Object: {response}")
+        
+        if response:
+            # Check basic attributes
+            print(f"   Has text attr: {hasattr(response, 'text')}")
+            if hasattr(response, 'text'):
+                text_value = response.text
+                print(f"   Text value: {repr(text_value)}")
+                print(f"   Text length: {len(text_value) if text_value else 0}")
+            
+            # Check candidates
+            if hasattr(response, 'candidates'):
+                candidates = response.candidates
+                print(f"   Candidates count: {len(candidates) if candidates else 0}")
+                if candidates:
+                    for i, candidate in enumerate(candidates[:2]):  # Show first 2 candidates
+                        print(f"   Candidate[{i}]:")
+                        if hasattr(candidate, 'content'):
+                            print(f"     Content: {candidate.content}")
+                        if hasattr(candidate, 'finish_reason'):
+                            print(f"     Finish Reason: {candidate.finish_reason}")
+                        if hasattr(candidate, 'safety_ratings'):
+                            print(f"     Safety Ratings: {candidate.safety_ratings}")
+            
+            # Check prompt feedback
+            if hasattr(response, 'prompt_feedback'):
+                feedback = response.prompt_feedback
+                print(f"   Prompt Feedback: {feedback}")
+                if feedback and hasattr(feedback, 'block_reason'):
+                    print(f"     Block Reason: {feedback.block_reason}")
+                if feedback and hasattr(feedback, 'safety_ratings'):
+                    print(f"     Safety Ratings: {feedback.safety_ratings}")
+            
+            # Check usage metadata
+            if hasattr(response, 'usage_metadata'):
+                usage = response.usage_metadata
+                print(f"   Usage Metadata: {usage}")
+        
+        print("   " + "="*50)
+
+    def _analyze_failed_response(self, response, context: str = "translation") -> str:
+        """Analyze a failed Gemini response and return detailed error information."""
+        if not response:
+            return "No response object returned from Gemini"
+        
+        error_parts = []
+        
+        # Check for blocked content
+        if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+            feedback = response.prompt_feedback
+            if hasattr(feedback, 'block_reason') and feedback.block_reason:
+                error_parts.append(f"Content blocked: {feedback.block_reason}")
+                
+                # Add safety rating details
+                if hasattr(feedback, 'safety_ratings') and feedback.safety_ratings:
+                    safety_info = []
+                    for rating in feedback.safety_ratings:
+                        if hasattr(rating, 'category') and hasattr(rating, 'probability'):
+                            safety_info.append(f"{rating.category}: {rating.probability}")
+                    if safety_info:
+                        error_parts.append(f"Safety ratings: {', '.join(safety_info)}")
+        
+        # Check candidates
+        if hasattr(response, 'candidates') and response.candidates:
+            for i, candidate in enumerate(response.candidates):
+                if hasattr(candidate, 'finish_reason') and candidate.finish_reason:
+                    if candidate.finish_reason != 'STOP':  # STOP is normal completion
+                        error_parts.append(f"Candidate[{i}] finish reason: {candidate.finish_reason}")
+                
+                # Check safety ratings on candidates
+                if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
+                    safety_issues = []
+                    for rating in candidate.safety_ratings:
+                        if (hasattr(rating, 'probability') and 
+                            rating.probability not in ['NEGLIGIBLE', 'LOW']):
+                            safety_issues.append(f"{rating.category}: {rating.probability}")
+                    if safety_issues:
+                        error_parts.append(f"Candidate[{i}] safety issues: {', '.join(safety_issues)}")
+        else:
+            error_parts.append("No candidates in response")
+        
+        # Check if response has text but it's empty
+        if hasattr(response, 'text'):
+            if response.text is None:
+                error_parts.append("Response text is None")
+            elif response.text == "":
+                error_parts.append("Response text is empty string")
+        else:
+            error_parts.append("Response has no text attribute")
+        
+        return " | ".join(error_parts) if error_parts else "Unknown error - response appears valid but empty"
 
     def _split_text(self, text: str, max_chunk_size: int = None) -> List[str]:
         """Split text into chunks while preserving paragraph boundaries."""

@@ -147,6 +147,86 @@ class TamilPDFProcessor:
             error_type = "Local translation" if use_local else ("Gemini translation" if use_gemini else "Google Translate")
             raise TranslationError(f"{error_type} setup failed: {e}")
     
+    def translate_text_file(
+        self,
+        text_file_path: str,
+        output_path: str = None,
+        use_local_translation: bool = False,
+        use_gemini: bool = False
+    ) -> str:
+        """
+        Translate a text file directly without OCR.
+        
+        Args:
+            text_file_path: Input text file path
+            output_path: Output file path (optional)
+            use_local_translation: Use local translation instead of cloud
+            use_gemini: Use Google Gemini for translation
+            
+        Returns:
+            Output file path on success
+        """
+        try:
+            # Validate input file
+            if not os.path.exists(text_file_path):
+                raise ValueError(f"Text file not found: {text_file_path}")
+            
+            # Generate output path if not provided
+            if not output_path:
+                base_name = os.path.splitext(text_file_path)[0]
+                output_path = f"{base_name}_english.txt"
+            
+            # Display processing info
+            translation_type = "Local" if use_local_translation else ("Gemini" if use_gemini else "Google Cloud")
+            print(f"Text Translation: {text_file_path}")
+            print(f"Output: {output_path}")
+            print(f"Translation: {translation_type} (Tamil → English)")
+            print()
+            
+            # Read the text file
+            print(f"📖 Reading Tamil text from: {text_file_path}")
+            with open(text_file_path, 'r', encoding='utf-8') as f:
+                tamil_text = f.read()
+            
+            if not tamil_text.strip():
+                raise ValueError("Input text file is empty")
+                
+            print(f"📊 Text loaded: {len(tamil_text)} characters")
+            
+            # Setup translator
+            print("🔧 Setting up translator...")
+            translator = self._setup_translator(use_local_translation, use_gemini)
+            
+            # Translate the text
+            print("🔄 Translating text...")
+            if use_gemini and hasattr(translator, 'translate_document'):
+                # Use document translation for Gemini
+                english_text = translator.translate_document(tamil_text, os.path.basename(text_file_path))
+            else:
+                # Use regular translation for other translators
+                english_text = translator.translate_text(tamil_text)
+            
+            if not english_text.strip():
+                raise TranslationError("Translation resulted in empty text")
+            
+            print(f"✓ Translation completed: {len(english_text)} characters")
+            
+            # Save translated content
+            print(f"💾 Saving English translation...")
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(english_text)
+            
+            # Display results
+            self._display_results(output_path, english_text, True, 1)
+            return output_path
+            
+        except (TranslationError, LocalTranslationError, GeminiTranslationError) as e:
+            print(f"\n✗ Translation failed: {e}")
+            raise
+        except Exception as e:
+            print(f"\n✗ Unexpected error: {e}")
+            raise
+
     def _display_results(self, output_path: str, content: str, translated: bool, page_offset: int):
         """Display processing results and sample content."""
         file_size_kb = self.file_handler.get_file_size_kb(output_path)
@@ -184,6 +264,12 @@ Examples:
   
   # Custom output file
   python main.py book.pdf output.txt --translate --local
+  
+  # Translate text file directly (no OCR)
+  python main.py tamil_text.txt --text-only --translate --gemini
+  
+  # Translate with local translation
+  python main.py tamil_text.txt --text-only --translate --local
 
 Requirements for translation:
   # For Google Cloud:
@@ -202,12 +288,14 @@ Requirements for translation:
         """
     )
     
-    parser.add_argument('pdf_file', help='Input PDF file path')
+    parser.add_argument('input_file', help='Input PDF or text file path')
     parser.add_argument('output_file', nargs='?', help='Output text file path (optional)')
-    parser.add_argument('--start', type=int, help='Start page number (1-indexed)')
-    parser.add_argument('--end', type=int, help='End page number (1-indexed)')
+    parser.add_argument('--start', type=int, help='Start page number (1-indexed, PDF only)')
+    parser.add_argument('--end', type=int, help='End page number (1-indexed, PDF only)')
     parser.add_argument('--translate', action='store_true', 
                        help='Translate Tamil text to English')
+    parser.add_argument('--text-only', action='store_true',
+                       help='Process text file directly without OCR (requires .txt file and --translate)')
     parser.add_argument('--local', action='store_true',
                        help='Use local translation instead of Google Translate (requires --translate)')
     parser.add_argument('--gemini', action='store_true',
@@ -220,6 +308,25 @@ def main():
     """Main application entry point."""
     parser = create_argument_parser()
     args = parser.parse_args()
+    
+    # Validate text-only mode requirements
+    if args.text_only:
+        if not args.translate:
+            print("Error: --text-only requires --translate option!")
+            print("Text-only mode is for translating text files directly without OCR.")
+            print("Example: python main.py tamil_text.txt --text-only --translate --gemini")
+            sys.exit(1)
+        
+        # Check file extension
+        if not args.input_file.lower().endswith('.txt'):
+            print("Error: --text-only mode requires a .txt file as input!")
+            print(f"Provided file: {args.input_file}")
+            print("Example: python main.py tamil_text.txt --text-only --translate --gemini")
+            sys.exit(1)
+        
+        # Page options don't make sense for text files
+        if args.start or args.end:
+            print("Warning: --start and --end options are ignored in text-only mode.")
     
     # Validate translation requirements
     if args.translate:
@@ -260,22 +367,36 @@ def main():
     
     try:
         processor = TamilPDFProcessor()
-        result = processor.process_pdf(
-            args.pdf_file,
-            args.output_file, 
-            args.start,
-            args.end,
-            args.translate,
-            args.local,
-            args.gemini
-        )
+        
+        if args.text_only:
+            # Process text file directly without OCR
+            result = processor.translate_text_file(
+                args.input_file,
+                args.output_file,
+                args.local,
+                args.gemini
+            )
+        else:
+            # Process PDF with OCR
+            result = processor.process_pdf(
+                args.input_file,
+                args.output_file, 
+                args.start,
+                args.end,
+                args.translate,
+                args.local,
+                args.gemini
+            )
         
         # Success message
         print(f"\n🎉 Processing completed successfully!")
-        if args.translate:
+        if args.text_only:
+            translation_type = "Local" if args.local else ("Gemini" if args.gemini else "Google Cloud")
+            print(f"📖 English translation ({translation_type}) saved to: {result}")
+        elif args.translate:
             translation_type = "Local" if args.local else ("Gemini" if args.gemini else "Google Cloud")
             # Generate Tamil filename for display
-            base_name = os.path.splitext(args.pdf_file)[0]
+            base_name = os.path.splitext(args.input_file)[0]
             tamil_file = f"{base_name}_tamil_unicode.txt"
             print(f"📝 Tamil OCR text saved to: {tamil_file}")
             print(f"📖 English translation ({translation_type}) saved to: {result}")
