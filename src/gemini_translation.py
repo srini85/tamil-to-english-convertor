@@ -18,37 +18,73 @@ class GeminiTranslationError(Exception):
     pass
 
 
+LANG_NAMES = {
+    'tam': 'Tamil',
+    'eng': 'English',
+    'fra': 'French',
+    'deu': 'German',
+    'spa': 'Spanish',
+    'hin': 'Hindi',
+    'tel': 'Telugu',
+    'chi_sim': 'Chinese (Simplified)',
+    'jpn': 'Japanese',
+    'kor': 'Korean',
+    'ara': 'Arabic',
+}
+
+TARGET_LANG_NAMES = {
+    'english': 'English',
+    'eng': 'English',
+    'telugu': 'Telugu',
+    'tel': 'Telugu',
+    'hindi': 'Hindi',
+    'hin': 'Hindi',
+    'french': 'French',
+    'fra': 'French',
+}
+
+
 class GeminiTranslator:
-    """High-accuracy Tamil to English translator using Google Gemini API with the new Gen AI SDK."""
-    
-    def __init__(self, api_key: str = None, model_name: str = None):
+    """High-accuracy translator to English using Google Gemini API with the new Gen AI SDK."""
+
+    def __init__(self, api_key: str = None, model_name: str = None, source_language: str = None, target_language: str = None):
         if not GEMINI_AVAILABLE:
             raise ImportError(
                 "Google Gen AI library not available. "
                 "Install with: pip install google-genai"
             )
-        
+
         # Configure the Gemini API using config
         api_key = api_key or config.gemini_api_key
         if not api_key:
             raise GeminiTranslationError(
                 "GEMINI_API_KEY not found. Set it in .env file or environment variable"
             )
-        
+
         # Set model name using config
         self.model_name = model_name or config.gemini_model
-        
+
+        # Source language (Tesseract lang code or full name)
+        source_lang_code = source_language or config.ocr_language
+        self.source_language_name = LANG_NAMES.get(source_lang_code, source_lang_code.capitalize())
+
+        # Target language (defaults to English)
+        target_lang_code = (target_language or 'english').lower()
+        self.target_language_name = TARGET_LANG_NAMES.get(target_lang_code, target_lang_code.capitalize())
+
         # Initialize the client
         try:
             self.client = genai.Client(api_key=api_key)
         except Exception as e:
             raise GeminiTranslationError(f"Failed to initialize Gemini client: {e}")
-        
+
         # System instruction for translation
-        self.system_instruction = """You are a professional translator specializing in Tamil to English translation. 
-Translate the provided Tamil text accurately while maintaining the original meaning, context, and tone. 
-Keep proper nouns and names unchanged unless they have standard English equivalents.
-Please provide only the English translation without any additional commentary or explanations."""
+        self.system_instruction = (
+            f"You are a professional translator specializing in {self.source_language_name} to {self.target_language_name} translation. "
+            f"Translate the provided {self.source_language_name} text accurately while maintaining the original meaning, context, and tone. "
+            "Keep proper nouns and names unchanged. "
+            f"Please provide only the {self.target_language_name} translation without any additional commentary or explanations."
+        )
         
         # Show configuration info
         if config.verbose_logging:
@@ -95,20 +131,21 @@ Please provide only the English translation without any additional commentary or
         """Test if the API connection works."""
         try:
             print("🔗 Testing Gemini API connection...")
-            # Simple test generation
             response = self.client.models.generate_content(
                 model=self.model_name,
-                contents="Hello",
+                contents="Say the word 'ready' in one word.",
                 config=types.GenerateContentConfig(
-                    system_instruction=self.system_instruction,
                     temperature=0.1,
-                    max_output_tokens=100
+                    max_output_tokens=20
                 )
             )
             if response and response.text:
                 print("✅ Gemini API connection successful!")
             else:
+                self._debug_gemini_response(response, "Connection Test")
                 raise GeminiTranslationError("Gemini API test returned empty response")
+        except GeminiTranslationError:
+            raise
         except Exception as e:
             raise GeminiTranslationError(f"Gemini API connection failed: {e}")
 
@@ -139,19 +176,19 @@ Please provide only the English translation without any additional commentary or
             rate_limiter.log_request('gemini')
             
             # Enhanced prompt for full document translation with content policy considerations
-            prompt = f"""Please provide a professional English translation of this Tamil literary text.
-            
+            prompt = f"""Please provide a professional {self.target_language_name} translation of this {self.source_language_name} literary text.
+
 This is a cultural/literary document that needs accurate translation while preserving the narrative structure.
-            
+
 Translation Guidelines:
-            - Provide direct, professional translation from Tamil to English
+            - Provide direct, professional translation from {self.source_language_name} to {self.target_language_name}
             - Maintain the original narrative flow and structure
             - Preserve proper nouns and character names
             - Keep the literary tone and style
             - This is educational/cultural content requiring translation services
-            
-Tamil Literary Text:
-            
+
+{self.source_language_name} Literary Text:
+
 {text}"""
             
             print(f"🔄 Translating complete document with Gemini ({len(text)} characters)...")
@@ -243,7 +280,7 @@ Tamil Literary Text:
                         rate_limiter.wait_if_needed('gemini', 'request')
                         rate_limiter.log_request('gemini')
                         
-                        prompt = f"Translate this Tamil text to English:\n\n{chunk}"
+                        prompt = f"Translate this {self.source_language_name} text to {self.target_language_name}:\n\n{chunk}"
                         
                         response = self.client.models.generate_content(
                             model=self.model_name,

@@ -15,11 +15,26 @@ from src.gemini_translation import GeminiTranslator, GeminiTranslationError, is_
 from src.file_handler import FileHandler, ContentProcessor
 
 
+LANG_DISPLAY_NAMES = {
+    'tam': 'Tamil',
+    'eng': 'English',
+    'fra': 'French',
+    'deu': 'German',
+    'spa': 'Spanish',
+    'hin': 'Hindi',
+    'chi_sim': 'Chinese (Simplified)',
+    'jpn': 'Japanese',
+    'kor': 'Korean',
+    'ara': 'Arabic',
+}
+
+
 class TamilPDFProcessor:
-    """Main orchestrator for Tamil PDF processing pipeline."""
-    
-    def __init__(self):
-        self.ocr_processor = TamilOCRProcessor()
+    """Main orchestrator for PDF processing pipeline."""
+
+    def __init__(self, source_lang: str = None):
+        self.source_lang = source_lang or 'tam'
+        self.ocr_processor = TamilOCRProcessor(source_lang=self.source_lang)
         self.file_handler = FileHandler()
         self.content_processor = ContentProcessor()
     
@@ -116,12 +131,13 @@ class TamilPDFProcessor:
         """Display processing information to user."""
         print(f"OCR Processing: {pdf_path}")
         print(f"Output: {output_path}")
+        lang_name = LANG_DISPLAY_NAMES.get(self.source_lang, self.source_lang.capitalize())
         if translate:
-            print(f"Translation: Enabled (Tamil → English, {translation_type})")
+            print(f"Translation: Enabled ({lang_name} → English, {translation_type})")
         else:
             print("Translation: Disabled")
     
-    def _setup_translator(self, use_local: bool = False, use_gemini: bool = False):
+    def _setup_translator(self, use_local: bool = False, use_gemini: bool = False, target_language: str = None):
         """Initialize and test translator connection."""
         try:
             if use_local:
@@ -134,7 +150,7 @@ class TamilPDFProcessor:
                     raise LocalTranslationError("No local translation services available")
             elif use_gemini:
                 api_key = os.getenv('GEMINI_API_KEY')
-                translator = GeminiTranslator(api_key=api_key)
+                translator = GeminiTranslator(api_key=api_key, source_language=self.source_lang, target_language=target_language)
                 print("✓ Google Gemini API connected")
                 return translator
             else:
@@ -152,7 +168,8 @@ class TamilPDFProcessor:
         text_file_path: str,
         output_path: str = None,
         use_local_translation: bool = False,
-        use_gemini: bool = False
+        use_gemini: bool = False,
+        target_language: str = None
     ) -> str:
         """
         Translate a text file directly without OCR.
@@ -171,53 +188,58 @@ class TamilPDFProcessor:
             if not os.path.exists(text_file_path):
                 raise ValueError(f"Text file not found: {text_file_path}")
             
+            # Resolve target language display name
+            from src.gemini_translation import TARGET_LANG_NAMES
+            tgt_key = (target_language or 'english').lower()
+            target_lang_display = TARGET_LANG_NAMES.get(tgt_key, tgt_key.capitalize())
+            target_lang_slug = target_lang_display.lower()
+
             # Generate output path if not provided
             if not output_path:
                 base_name = os.path.splitext(text_file_path)[0]
-                output_path = f"{base_name}_english.txt"
-            
+                output_path = f"{base_name}_{target_lang_slug}.txt"
+
             # Display processing info
             translation_type = "Local" if use_local_translation else ("Gemini" if use_gemini else "Google Cloud")
+            lang_name = LANG_DISPLAY_NAMES.get(self.source_lang, self.source_lang.capitalize())
             print(f"Text Translation: {text_file_path}")
             print(f"Output: {output_path}")
-            print(f"Translation: {translation_type} (Tamil → English)")
+            print(f"Translation: {translation_type} ({lang_name} → {target_lang_display})")
             print()
-            
+
             # Read the text file
             print(f"📖 Reading Tamil text from: {text_file_path}")
             with open(text_file_path, 'r', encoding='utf-8') as f:
                 tamil_text = f.read()
-            
+
             if not tamil_text.strip():
                 raise ValueError("Input text file is empty")
-                
+
             print(f"📊 Text loaded: {len(tamil_text)} characters")
-            
+
             # Setup translator
             print("🔧 Setting up translator...")
-            translator = self._setup_translator(use_local_translation, use_gemini)
-            
+            translator = self._setup_translator(use_local_translation, use_gemini, target_language=target_language)
+
             # Translate the text
             print("🔄 Translating text...")
             if use_gemini and hasattr(translator, 'translate_document'):
-                # Use document translation for Gemini
-                english_text = translator.translate_document(tamil_text, os.path.basename(text_file_path))
+                translated_text = translator.translate_document(tamil_text, os.path.basename(text_file_path))
             else:
-                # Use regular translation for other translators
-                english_text = translator.translate_text(tamil_text)
-            
-            if not english_text.strip():
+                translated_text = translator.translate_text(tamil_text)
+
+            if not translated_text.strip():
                 raise TranslationError("Translation resulted in empty text")
-            
-            print(f"✓ Translation completed: {len(english_text)} characters")
-            
+
+            print(f"✓ Translation completed: {len(translated_text)} characters")
+
             # Save translated content
-            print(f"💾 Saving English translation...")
+            print(f"💾 Saving {target_lang_display} translation...")
             with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(english_text)
-            
+                f.write(translated_text)
+
             # Display results
-            self._display_results(output_path, english_text, True, 1)
+            self._display_results(output_path, translated_text, True, 1)
             return output_path
             
         except (TranslationError, LocalTranslationError, GeminiTranslationError) as e:
@@ -240,6 +262,47 @@ class TamilPDFProcessor:
             print(line)
 
 
+def join_translated_files(
+    input_dir: str,
+    pattern: str,
+    output_path: str,
+    chapter_count: int = None
+) -> str:
+    """
+    Join multiple translated chapter files into a single document.
+
+    Args:
+        input_dir: Directory containing the chapter files
+        pattern: Glob pattern with {ch} placeholder, e.g. 'Chapter {ch} - tamil_unicode_telugu.txt'
+        output_path: Output file path
+        chapter_count: Number of chapters (auto-detected if None)
+
+    Returns:
+        Output file path
+    """
+    import glob as _glob
+
+    # Auto-detect chapter files using pattern with wildcard
+    wildcard_pattern = pattern.replace('{ch}', '*')
+    matches = sorted(_glob.glob(os.path.join(input_dir, wildcard_pattern)))
+
+    if not matches:
+        raise ValueError(f"No files found matching: {os.path.join(input_dir, wildcard_pattern)}")
+
+    parts = []
+    for filepath in matches:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            parts.append(f.read().strip())
+
+    combined = '\n\n' + ('\n\n' + '—' * 40 + '\n\n').join(parts) + '\n'
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(combined)
+
+    print(f"Joined {len(matches)} files -> {output_path} ({len(combined)} chars)")
+    return output_path
+
+
 def create_argument_parser():
     """Create and configure command line argument parser."""
     parser = argparse.ArgumentParser(
@@ -247,29 +310,37 @@ def create_argument_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # OCR only (Tamil Unicode)
+  # OCR only (Tamil Unicode, default)
   python main.py book.pdf
-  
-  # OCR + Translation to English (Google Cloud)
-  python main.py book.pdf --translate
-  
+
+  # OCR English PDF (no translation needed)
+  python main.py book.pdf --lang eng
+
   # OCR + Translation to English (Google Gemini - Better Quality)
   python main.py book.pdf --translate --gemini
-  
+
+  # OCR English PDF + Gemini (e.g. for cleanup/formatting)
+  python main.py book.pdf --lang eng --translate --gemini
+
+  # OCR + Translation to English (Google Cloud)
+  python main.py book.pdf --translate
+
   # OCR + Translation to English (Local/Free)
   python main.py book.pdf --translate --local
-  
+
   # Process specific pages with Gemini translation
   python main.py book.pdf --start 1 --end 5 --translate --gemini
-  
+
   # Custom output file
   python main.py book.pdf output.txt --translate --local
-  
+
   # Translate text file directly (no OCR)
   python main.py tamil_text.txt --text-only --translate --gemini
-  
+
   # Translate with local translation
   python main.py tamil_text.txt --text-only --translate --local
+
+  # Supported --lang codes (Tesseract): tam, eng, fra, deu, spa, hin, chi_sim, jpn, kor, ara
 
 Requirements for translation:
   # For Google Cloud:
@@ -300,7 +371,15 @@ Requirements for translation:
                        help='Use local translation instead of Google Translate (requires --translate)')
     parser.add_argument('--gemini', action='store_true',
                        help='Use Google Gemini for translation (requires --translate and GEMINI_API_KEY)')
-    
+    parser.add_argument('--lang', default='tam',
+                       help='Source language for OCR (Tesseract lang code, e.g. tam, eng, fra). Default: tam')
+    parser.add_argument('--target-lang', default='english',
+                       help='Target language for translation (e.g. english, telugu, hindi). Default: english')
+    parser.add_argument('--join', action='store_true',
+                       help='Join translated chapter files into a single document. input_file is the directory, output_file is the combined output path.')
+    parser.add_argument('--join-pattern', default='* - tamil_unicode_{lang}.txt',
+                       help='Filename glob pattern for --join. Use {lang} for target language. Default: "* - tamil_unicode_{lang}.txt"')
+
     return parser
 
 
@@ -366,15 +445,27 @@ def main():
                 sys.exit(1)
     
     try:
-        processor = TamilPDFProcessor()
-        
+        if args.join:
+            from src.gemini_translation import TARGET_LANG_NAMES
+            tgt_key = args.target_lang.lower()
+            lang_slug = TARGET_LANG_NAMES.get(tgt_key, tgt_key).lower()
+            pattern = args.join_pattern.replace('{lang}', lang_slug)
+            input_dir = args.input_file
+            output_path = args.output_file or os.path.join(input_dir, f"madhavan_complete_{lang_slug}.txt")
+            join_translated_files(input_dir, pattern, output_path)
+            print(f"Combined document saved to: {output_path}")
+            sys.exit(0)
+
+        processor = TamilPDFProcessor(source_lang=args.lang)
+
         if args.text_only:
             # Process text file directly without OCR
             result = processor.translate_text_file(
                 args.input_file,
                 args.output_file,
                 args.local,
-                args.gemini
+                args.gemini,
+                target_language=args.target_lang
             )
         else:
             # Process PDF with OCR
@@ -395,10 +486,11 @@ def main():
             print(f"📖 English translation ({translation_type}) saved to: {result}")
         elif args.translate:
             translation_type = "Local" if args.local else ("Gemini" if args.gemini else "Google Cloud")
-            # Generate Tamil filename for display
+            # Generate source OCR filename for display
             base_name = os.path.splitext(args.input_file)[0]
-            tamil_file = f"{base_name}_tamil_unicode.txt"
-            print(f"📝 Tamil OCR text saved to: {tamil_file}")
+            lang_name = LANG_DISPLAY_NAMES.get(args.lang, args.lang).lower().replace(' ', '_')
+            ocr_file = f"{base_name}_{lang_name}_unicode.txt"
+            print(f"📝 OCR text saved to: {ocr_file}")
             print(f"📖 English translation ({translation_type}) saved to: {result}")
         else:
             print(f"📝 Tamil Unicode text saved to: {result}")
